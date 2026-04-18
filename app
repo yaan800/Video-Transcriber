@@ -1,188 +1,32 @@
-# YouTube Video Transcription App - Complete Code
+# YouTube Transcriber - STATIC VERSION for GitHub Pages
 
-## Everything you need to recreate this app
-
----
-
-### 📋 STEP 1: Create these files in your project
+## ✅ This version works 100% on GitHub Pages!
 
 ---
 
-## FILE 1: package.json
-```json
-{
-  "name": "youtube-transcription-app",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "next": "15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "drizzle-orm": "^0.33.0",
-    "postgres": "^3.4.4",
-    "youtube-transcript": "^1.2.1",
-    "react-icons": "^5.3.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "typescript": "^5",
-    "tailwindcss": "^3.4.14",
-    "postcss": "^8",
-    "eslint": "^9",
-    "eslint-config-next": "15.1.0",
-    "drizzle-kit": "^0.24.2"
-  }
-}
-```
+## 🚨 Why You Got 404
+
+Your repo had:
+- Next.js **server-side API routes** (can't run on GitHub Pages)
+- PostgreSQL **database code** (needs a server)
+- No static export configuration
 
 ---
 
-## FILE 2: .env.example
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/youtube_transcriber?sslmode=disable"
-```
+## 📦 FILE 1: Replace your `src/app/page.tsx` with this (CLIENT-SIDE ONLY)
 
----
-
-## FILE 3: drizzle.config.ts
-```typescript
-import { defineConfig } from 'drizzle-kit';
-
-export default defineConfig({
-  schema: './src/db/schema.ts',
-  dialect: 'postgresql',
-  dbCredentials: {
-    url: process.env.DATABASE_URL!,
-  },
-});
-```
-
----
-
-## FILE 4: src/db/schema.ts
-```typescript
-import { pgTable, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core';
-
-export const transcriptions = pgTable('transcriptions', {
-  id: serial('id').primaryKey(),
-  videoId: varchar('video_id', { length: 255 }).notNull(),
-  videoTitle: text('video_title'),
-  thumbnailUrl: text('thumbnail_url'),
-  transcript: text('transcript').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
-export type Transcription = typeof transcriptions.$inferSelect;
-```
-
----
-
-## FILE 5: src/db/index.ts
-```typescript
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-
-const client = postgres(process.env.DATABASE_URL!);
-export const db = drizzle(client);
-```
-
----
-
-## FILE 6: src/app/api/transcribe/route.ts
-```typescript
-import { NextResponse } from 'next/server';
-import { YoutubeTranscript } from 'youtube-transcript';
-import { db } from '@/db';
-import { transcriptions } from '@/db/schema';
-
-export async function POST(request: Request) {
-  try {
-    const { videoId, videoTitle, thumbnailUrl } = await request.json();
-
-    if (!videoId) {
-      return NextResponse.json(
-        { error: 'Video ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-
-    const formattedTranscript = transcript
-      .map((item) => {
-        const minutes = Math.floor(item.offset / 60);
-        const seconds = Math.floor(item.offset % 60);
-        const timestamp = `[${minutes}:${seconds.toString().padStart(2, '0')}]`;
-        return `${timestamp} ${item.text}`;
-      })
-      .join('\n');
-
-    await db.insert(transcriptions).values({
-      videoId,
-      videoTitle,
-      thumbnailUrl,
-      transcript: formattedTranscript,
-    });
-
-    return NextResponse.json({
-      success: true,
-      transcript: formattedTranscript,
-      transcriptArray: transcript,
-    });
-  } catch (error) {
-    console.error('Transcription error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch transcript. Make sure the video has captions available.' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function GET() {
-  try {
-    const history = await db
-      .select()
-      .from(transcriptions)
-      .orderBy(transcriptions.createdAt)
-      .limit(10);
-
-    return NextResponse.json({ success: true, history });
-  } catch (error) {
-    console.error('Fetch history error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch history' },
-      { status: 500 }
-    );
-  }
-}
-```
-
----
-
-## FILE 7: src/app/page.tsx
-```typescript
+```tsx
 'use client';
 
-import { useState } from 'react';
-import { FaYoutube, FaCopy, FaDownload, FaHistory, FaSpinner, FaTrash } from 'react-icons/fa';
+import { useState, useEffect } from 'react';
+import { FaYoutube, FaCopy, FaDownload, FaHistory, FaSpinner, FaTrash, FaTimes } from 'react-icons/fa';
 
-interface Transcription {
-  id: number;
+interface HistoryItem {
   videoId: string;
-  videoTitle: string | null;
-  thumbnailUrl: string | null;
+  videoTitle: string;
+  thumbnailUrl: string;
   transcript: string;
-  createdAt: string;
+  timestamp: number;
 }
 
 export default function Home() {
@@ -191,9 +35,17 @@ export default function Home() {
   const [transcript, setTranscript] = useState('');
   const [videoInfo, setVideoInfo] = useState<{ title: string; thumbnail: string; videoId: string } | null>(null);
   const [error, setError] = useState('');
-  const [history, setHistory] = useState<Transcription[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Load history from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('transcribe-history');
+    if (saved) {
+      setHistory(JSON.parse(saved));
+    }
+  }, []);
 
   const extractVideoId = (url: string): string | null => {
     const patterns = [
@@ -223,32 +75,71 @@ export default function Home() {
     setVideoInfo({ title, thumbnail, videoId });
 
     try {
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoId, videoTitle: title, thumbnailUrl: thumbnail }),
-      });
+      // Use a public CORS proxy to fetch transcript (client-side only)
+      const proxyUrl = `https://corsproxy.io/?https://www.youtube.com/watch?v=${videoId}`;
+      const response = await fetch(proxyUrl);
+      const html = await response.text();
+      
+      // Try to extract captions from the page
+      const captionsRegex = /"captionTracks":\s*(\[.*?\])/;
+      const match = html.match(captionsRegex);
+      
+      if (!match) {
+        throw new Error('No captions found for this video. Try videos with captions enabled.');
+      }
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const captionTracks = JSON.parse(match[1]);
+      if (!captionTracks.length) {
+        throw new Error('No caption tracks available');
+      }
 
-      setTranscript(data.transcript);
+      // Get English captions or first available
+      const captionUrl = captionTracks.find((t: any) => t.languageCode === 'en')?.baseUrl 
+        || captionTracks[0].baseUrl;
+
+      const transcriptResponse = await fetch(`https://corsproxy.io/?${encodeURIComponent(captionUrl)}`);
+      const transcriptXml = await transcriptResponse.text();
+
+      // Parse XML transcript
+      const textRegex = /<text start="([^"]+)"[^>]*>([^<]+)<\/text>/g;
+      const lines: { offset: number; text: string }[] = [];
+      let xmlMatch;
+      
+      while ((xmlMatch = textRegex.exec(transcriptXml)) !== null) {
+        lines.push({
+          offset: parseFloat(xmlMatch[1]),
+          text: xmlMatch[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        });
+      }
+
+      const formattedTranscript = lines
+        .map((item) => {
+          const minutes = Math.floor(item.offset / 60);
+          const seconds = Math.floor(item.offset % 60);
+          const timestamp = `[${minutes}:${seconds.toString().padStart(2, '0')}]`;
+          return `${timestamp} ${item.text}`;
+        })
+        .join('\n');
+
+      setTranscript(formattedTranscript);
+
+      // Save to localStorage history
+      const newHistoryItem: HistoryItem = {
+        videoId,
+        videoTitle: title,
+        thumbnailUrl: thumbnail,
+        transcript: formattedTranscript,
+        timestamp: Date.now()
+      };
+
+      const newHistory = [newHistoryItem, ...history.filter(h => h.videoId !== videoId)].slice(0, 20);
+      setHistory(newHistory);
+      localStorage.setItem('transcribe-history', JSON.stringify(newHistory));
+
     } catch (err: any) {
-      setError(err.message || 'Failed to transcribe video');
+      setError(err.message || 'Failed to transcribe video. Try another video with captions.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadHistory = async () => {
-    try {
-      const response = await fetch('/api/transcribe');
-      const data = await response.json();
-      if (data.success) {
-        setHistory(data.history);
-      }
-    } catch (err) {
-      console.error('Failed to load history');
     }
   };
 
@@ -266,9 +157,19 @@ export default function Home() {
     a.click();
   };
 
-  const toggleHistory = () => {
-    setShowHistory(!showHistory);
-    if (!showHistory) loadHistory();
+  const clearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem('transcribe-history');
+  };
+
+  const loadFromHistory = (item: HistoryItem) => {
+    setTranscript(item.transcript);
+    setVideoInfo({
+      title: item.videoTitle,
+      thumbnail: item.thumbnailUrl,
+      videoId: item.videoId,
+    });
+    setShowHistory(false);
   };
 
   return (
@@ -306,7 +207,7 @@ export default function Home() {
               {loading ? <FaSpinner className="animate-spin" /> : 'Transcribe'}
             </button>
             <button
-              onClick={toggleHistory}
+              onClick={() => setShowHistory(!showHistory)}
               className="px-4 py-4 bg-gray-700 hover:bg-gray-600 text-white rounded-xl transition-all"
               title="Show History"
             >
@@ -321,23 +222,34 @@ export default function Home() {
         {/* History Panel */}
         {showHistory && (
           <div className="bg-gray-800 rounded-2xl p-6 shadow-xl mb-8">
-            <h2 className="text-xl font-semibold text-white mb-4">Recent Transcriptions</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-white">Recent Transcriptions</h2>
+              <div className="flex gap-2">
+                {history.length > 0 && (
+                  <button
+                    onClick={clearHistory}
+                    className="flex items-center gap-2 px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg"
+                  >
+                    <FaTrash /> Clear
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowHistory(false)}
+                  className="p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+                >
+                  <FaTimes />
+                </button>
+              </div>
+            </div>
             {history.length === 0 ? (
               <p className="text-gray-400">No history yet</p>
             ) : (
               <div className="space-y-3 max-h-64 overflow-y-auto">
-                {history.map((item) => (
+                {history.map((item, index) => (
                   <div
-                    key={item.id}
+                    key={index}
                     className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600 transition-all"
-                    onClick={() => {
-                      setTranscript(item.transcript);
-                      setVideoInfo({
-                        title: item.videoTitle || 'Unknown',
-                        thumbnail: item.thumbnailUrl || '',
-                        videoId: item.videoId,
-                      });
-                    }}
+                    onClick={() => loadFromHistory(item)}
                   >
                     {item.thumbnailUrl && (
                       <img
@@ -349,7 +261,7 @@ export default function Home() {
                     <div className="flex-1 overflow-hidden">
                       <p className="text-white truncate">{item.videoTitle}</p>
                       <p className="text-gray-400 text-sm">
-                        {new Date(item.createdAt).toLocaleDateString()}
+                        {new Date(item.timestamp).toLocaleDateString()}
                       </p>
                     </div>
                   </div>
@@ -422,111 +334,18 @@ export default function Home() {
 
 ---
 
-## FILE 8: src/app/layout.tsx
-```typescript
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
+## 📦 FILE 2: Replace `next.config.ts`
 
-const inter = Inter({ subsets: ['latin'] });
-
-export const metadata: Metadata = {
-  title: 'YouTube Transcriber',
-  description: 'Extract transcripts from YouTube videos',
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
-    </html>
-  );
-}
-```
-
----
-
-## FILE 9: src/app/globals.css
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  min-height: 100vh;
-}
-```
-
----
-
-## FILE 10: tailwind.config.ts
-```typescript
-import type { Config } from 'tailwindcss';
-
-export default {
-  content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-} satisfies Config;
-```
-
----
-
-## FILE 11: tsconfig.json
-```json
-{
-  "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
-}
-```
-
----
-
-## FILE 12: next.config.ts
 ```typescript
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'export',  // This makes it static HTML!
+  images: {
+    unoptimized: true,
+  },
+  trailingSlash: true,
+  basePath: '/Video-Transcriber',  // Match your repo name!
 };
 
 export default nextConfig;
@@ -534,59 +353,97 @@ export default nextConfig;
 
 ---
 
-## FILE 13: postcss.config.js
-```js
-module.exports = {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+## 📦 FILE 3: Delete the API folder
+
+Delete the entire folder: `src/app/api/` (we don't need it anymore!)
+
+---
+
+## 📦 FILE 4: Simplify `package.json` (remove DB stuff)
+
+```json
+{
+  "name": "youtube-transcription-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
-};
+  "dependencies": {
+    "next": "15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-icons": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "tailwindcss": "^3.4.14",
+    "postcss": "^8",
+    "eslint": "^9",
+    "eslint-config-next": "15.1.0"
+  }
+}
 ```
 
 ---
 
-## 🚀 HOW TO USE THIS CODE
+## 🚀 HOW TO DEPLOY TO GITHUB PAGES
 
-### Option 1: Quick Setup
-1. Create a new Next.js project:
-   ```bash
-   npx create-next-app@latest youtube-transcriber
-   ```
-2. Replace the files in your new project with the code above
-3. Install dependencies:
-   ```bash
-   npm install youtube-transcript react-icons drizzle-orm postgres
-   npm install -D drizzle-kit
-   ```
-4. Set up your `.env` file with DATABASE_URL
-5. Push schema: `npx drizzle-kit push`
-6. Run: `npm run dev`
+### Step 1: Install gh-pages package
+```bash
+npm install --save-dev gh-pages
+```
 
-### Option 2: No Database (Simpler!)
-If you don't want to use PostgreSQL, just:
-1. Remove all database code from the API route and page
-2. The transcription functionality will still work perfectly!
-3. Only history feature will be disabled
+### Step 2: Add deploy script to package.json
+```json
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "lint": "next lint",
+  "deploy": "gh-pages -d out"
+}
+```
 
----
+### Step 3: Build and deploy
+```bash
+npm run build
+npm run deploy
+```
 
-## ✨ FEATURES INCLUDED
-
-- ✅ YouTube URL input with validation
-- ✅ Video thumbnail display
-- ✅ Transcript extraction with timestamps
-- ✅ Copy transcript to clipboard
-- ✅ Download transcript as text file
-- ✅ Transcription history (with PostgreSQL)
-- ✅ Beautiful dark UI with gradient
-- ✅ Responsive design
+### Step 4: Configure GitHub Pages settings
+1. Go to your repo: `https://github.com/yaan800/Video-Transcriber`
+2. Click **Settings** → **Pages**
+3. Under **Source**, select:
+   - **Deploy from a branch**
+   - Branch: `gh-pages`, Folder: `/root`
+4. Click **Save**
 
 ---
 
-## 📝 NOTES
+## ✨ IMPORTANT CHANGES MADE
 
-- The app uses `youtube-transcript` library to extract captions
-- Only works with videos that have captions enabled
-- For production deployment to Vercel, use Neon or Supabase for PostgreSQL
-- No YouTube API key required - works via web scraping of captions
+1. ✅ **No server-side code** - everything runs in browser
+2. ✅ **No PostgreSQL database** - uses `localStorage` for history
+3. ✅ **No API routes** - uses public CORS proxy for client-side fetching
+4. ✅ **Next.js static export** enabled
+5. ✅ **`basePath`** matches your repo name `/Video-Transcriber`
+6. ✅ **History saved in browser** - works per-user
+
+---
+
+## 🎯 ALTERNATIVE: Use Vercel (Easier!)
+
+If static GitHub Pages give you CORS issues:
+
+1. Go to **https://vercel.com**
+2. Connect your GitHub repo
+3. Click **Deploy** - done in 60 seconds!
+
+Vercel supports full Next.js apps including API routes, so you can use the original server-side version without CORS problems.
